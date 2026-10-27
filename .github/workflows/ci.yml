@@ -8,9 +8,11 @@ on:
 permissions:
   contents: read
 
+# No Docker: database tests run in PGlite (Postgres in WebAssembly) and the
+# Playwright smoke tests need only the Vite dev server.
 jobs:
   web:
-    name: Lint, typecheck, unit tests, build
+    name: Lint, typecheck, tests, build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,39 +24,8 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: npm run db:test
       - run: npm run build
-
-  database:
-    name: Migrations and RLS tests (pgTAP)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npx supabase db start
-      - run: npx supabase test db
-
-  e2e:
-    name: End-to-end (Playwright + local Supabase)
-    runs-on: ubuntu-latest
-    needs: [web, database]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npx supabase start -x studio,imgproxy,edge-runtime,logflare,vector,supavisor
-      - run: npx supabase db reset
-      - name: Point the app at local Supabase
-        run: |
-          eval "$(npx supabase status -o env)"
-          echo "VITE_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
-          echo "VITE_SUPABASE_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4

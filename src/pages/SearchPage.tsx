@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
 import { Alert } from '../components/Alert';
+import { LiveIndicator } from '../components/LiveIndicator';
 import { Spinner } from '../components/Spinner';
 import { SearchForm } from '../features/search/SearchForm';
 import { SearchResults } from '../features/search/SearchResults';
 import { normalizeBDNumber } from '../lib/phone';
+import { useRealtimeInvalidate } from '../lib/useRealtime';
 import { searchNumber } from '../services/search';
 
 export function SearchPage() {
@@ -16,6 +18,13 @@ export function SearchPage() {
   const query = useQuery({
     queryKey: ['search', e164],
     queryFn: () => searchNumber(e164!),
+    enabled: e164 !== null,
+  });
+  // Refetch when a moderator publishes, redacts or removes any report.
+  const live = useRealtimeInvalidate({
+    channel: 'search',
+    subscriptions: [{ table: 'public_reports' }],
+    queryKeys: [['search', e164]],
     enabled: e164 !== null,
   });
 
@@ -41,7 +50,14 @@ export function SearchPage() {
           </button>
         </Alert>
       )}
-      {query.data && <SearchResults result={query.data} />}
+      {query.data && (
+        <>
+          <div className="flex justify-end">
+            <LiveIndicator status={live} />
+          </div>
+          <SearchResults result={query.data} />
+        </>
+      )}
     </div>
   );
 }

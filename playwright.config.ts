@@ -1,7 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Runs against local Supabase (`npx supabase start`, then `npx supabase db reset`
-// to apply migrations and seed users). VITE_SUPABASE_* must point at it.
+// Smoke tests against the Vite dev server. No database or Docker needed.
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,

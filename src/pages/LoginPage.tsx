@@ -1,128 +1,130 @@
 import { useState, type FormEvent } from 'react';
-import { Navigate, useSearchParams } from 'react-router';
-import { z } from 'zod';
+import { Link, Navigate, useSearchParams } from 'react-router';
 import { Alert } from '../components/Alert';
 import { FormField } from '../components/FormField';
 import { useAuth } from '../features/auth/context';
+import { safeNext } from '../features/auth/safeNext';
+import { emailSchema } from '../lib/credentials';
 import { supabase } from '../services/supabase';
-
-const emailSchema = z.email('Enter a valid email address.');
-const codeSchema = z.string().regex(/^\d{6}$/, 'Enter the 6-digit code from the email.');
-
-/** Only allow same-site relative redirects. */
-function safeNext(value: string | null): string {
-  return value && value.startsWith('/') && !value.startsWith('//') ? value : '/my-reports';
-}
 
 export function LoginPage() {
   const { user } = useAuth();
   const [params] = useSearchParams();
   const next = safeNext(params.get('next'));
-  const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [unverified, setUnverified] = useState(false);
+  const [resent, setResent] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Also covers returning from the verification link: supabase-js reads the
+  // session from the URL, the auth listener updates, and we redirect.
   if (user) return <Navigate to={next} replace />;
 
-  async function sendCode(event: FormEvent) {
+  async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    const parsed = emailSchema.safeParse(email.trim());
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Invalid email.');
+    const parsed = emailSchema.safeParse(email);
+    if (!parsed.success || !password) {
+      setError('Enter your email and password.');
       return;
     }
     setBusy(true);
     setError(null);
-    const { error: err } = await supabase.auth.signInWithOtp({
+    setUnverified(false);
+    setResent(false);
+    const { error: err } = await supabase.auth.signInWithPassword({
       email: parsed.data,
-      options: { shouldCreateUser: true },
+      password,
     });
     setBusy(false);
-    if (err) setError(err.message);
-    else setStep('code');
+    if (!err) return;
+    if (/email not confirmed/i.test(err.message)) {
+      setUnverified(true);
+    } else if (/invalid login credentials/i.test(err.message)) {
+      setError('Incorrect email or password.');
+    } else {
+      setError(err.message);
+    }
   }
 
-  async function verifyCode(event: FormEvent) {
-    event.preventDefault();
-    const parsed = codeSchema.safeParse(code.trim());
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Invalid code.');
-      return;
-    }
+  async function resend() {
+    const parsed = emailSchema.safeParse(email);
+    if (!parsed.success) return;
     setBusy(true);
-    setError(null);
-    const { error: err } = await supabase.auth.verifyOtp({
-      email: email.trim(),
-      token: parsed.data,
-      type: 'email',
+    const { error: err } = await supabase.auth.resend({
+      type: 'signup',
+      email: parsed.data,
+      options: {
+        emailRedirectTo: `${window.location.origin}/login?next=${encodeURIComponent(next)}`,
+      },
     });
     setBusy(false);
     if (err) setError(err.message);
-    // On success the auth listener updates the session and <Navigate> redirects.
+    else setResent(true);
   }
 
   return (
     <div className="mx-auto max-w-md space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Sign in</h1>
-        <p className="mt-2 text-slate-700">
-          Sign in with your email to submit reports and track their review. No password needed.
-        </p>
+        <p className="mt-2 text-slate-700">Sign in to submit reports and track their review.</p>
       </div>
-      <div className="card">
-        {step === 'email' ? (
-          <form onSubmit={sendCode} noValidate className="space-y-4">
-            <FormField id="email" label="Email address" error={error ?? undefined}>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                className="input"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                aria-invalid={error ? true : undefined}
-                aria-describedby="email-error"
-              />
-            </FormField>
-            <button type="submit" className="btn-primary w-full" disabled={busy}>
-              {busy ? 'Sending…' : 'Email me a sign-in code'}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={verifyCode} noValidate className="space-y-4">
-            <Alert tone="info">We sent a 6-digit code to {email}.</Alert>
-            <FormField id="code" label="Sign-in code" error={error ?? undefined}>
-              <input
-                id="code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={6}
-                className="input font-mono tracking-widest"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                aria-invalid={error ? true : undefined}
-                aria-describedby="code-error"
-              />
-            </FormField>
-            <button type="submit" className="btn-primary w-full" disabled={busy}>
-              {busy ? 'Verifying…' : 'Sign in'}
-            </button>
-            <button
-              type="button"
-              className="btn-secondary w-full"
-              onClick={() => {
-                setStep('email');
-                setCode('');
-                setError(null);
-              }}
-            >
-              Use a different email
-            </button>
-          </form>
+      <form onSubmit={onSubmit} noValidate className="card space-y-4">
+        <FormField id="email" label="Email address">
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            className="input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </FormField>
+        <FormField id="password" label="Password">
+          <input
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            className="input"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </FormField>
+        {error && <Alert tone="error">{error}</Alert>}
+        {unverified && (
+          <Alert tone="warning" title="Verify your email first">
+            <p>Click the verification link we emailed to {email.trim()}, then sign in.</p>
+            {resent ? (
+              <p className="mt-2 font-medium">Verification email sent again.</p>
+            ) : (
+              <button
+                type="button"
+                className="mt-2 font-medium underline"
+                disabled={busy}
+                onClick={resend}
+              >
+                Resend verification email
+              </button>
+            )}
+          </Alert>
         )}
-      </div>
+        <button type="submit" className="btn-primary w-full" disabled={busy}>
+          {busy ? 'Signing in…' : 'Sign in'}
+        </button>
+        <p className="text-center text-sm text-slate-700">
+          New here?{' '}
+          <Link
+            to={`/signup?next=${encodeURIComponent(next)}`}
+            className="font-medium text-blue-800 underline"
+          >
+            Create an account
+          </Link>
+        </p>
+        <p className="text-center text-xs text-slate-600">
+          Forgot your password? Ask the site admin to reset it.
+        </p>
+      </form>
     </div>
   );
 }

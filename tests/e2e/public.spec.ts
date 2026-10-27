@@ -1,13 +1,7 @@
+// Smoke tests for public pages. They need only the dev server, not a database:
+// without Supabase env vars the app still renders and validates input.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-
-test('search accepts Bangla digits and shows seeded reviewed reports', async ({ page }) => {
-  await page.goto('/');
-  await page.getByLabel('Phone number').fill('০১৭১২-৩৪৫৬৭৮');
-  await page.getByRole('button', { name: 'Search' }).click();
-  await expect(page).toHaveURL(/q=%2B8801712345678/);
-  await expect(page.getByText(/2 reviewed community reports for 01712-345678/)).toBeVisible();
-});
 
 test('invalid numbers get a clear message', async ({ page }) => {
   await page.goto('/');
@@ -16,7 +10,15 @@ test('invalid numbers get a clear message', async ({ page }) => {
   await expect(page.getByRole('alert')).toContainText('valid Bangladesh mobile number');
 });
 
-for (const path of ['/', '/search?q=01712345678', '/safety', '/privacy', '/terms', '/login']) {
+for (const path of [
+  '/',
+  '/search?q=01712345678',
+  '/safety',
+  '/privacy',
+  '/terms',
+  '/login',
+  '/signup',
+]) {
   test(`no serious accessibility violations on ${path}`, async ({ page }) => {
     await page.goto(path);
     await page.waitForLoadState('networkidle');

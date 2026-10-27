@@ -60,15 +60,28 @@ export function Layout() {
           <nav aria-label="Main" className="hidden items-center gap-1 md:flex">
             {links}
           </nav>
-          <div className="hidden md:block">
+          <div className="hidden items-center gap-2 md:flex">
             {user ? (
-              <button type="button" className="btn-secondary" onClick={signOut}>
-                Sign out
-              </button>
+              <>
+                <Link
+                  to="/account"
+                  className="max-w-56 truncate text-sm font-medium text-slate-700 hover:underline"
+                >
+                  {user.email ?? 'Account'}
+                </Link>
+                <button type="button" className="btn-secondary" onClick={signOut}>
+                  Sign out
+                </button>
+              </>
             ) : (
-              <Link to="/login" className="btn-primary">
-                Sign in
-              </Link>
+              <>
+                <Link to="/login" className="btn-secondary">
+                  Sign in
+                </Link>
+                <Link to="/signup" className="btn-primary">
+                  Sign up
+                </Link>
+              </>
             )}
           </div>
           <button
@@ -88,22 +101,32 @@ export function Layout() {
             className="border-t border-slate-200 px-4 py-2 md:hidden"
           >
             {links}
-            <div className="mt-2 border-t border-slate-200 pt-2">
+            <div className="mt-2 space-y-2 border-t border-slate-200 pt-2">
               {user ? (
-                <button
-                  type="button"
-                  className="btn-secondary w-full"
-                  onClick={() => {
-                    close();
-                    void signOut();
-                  }}
-                >
-                  Sign out
-                </button>
+                <>
+                  <Link to="/account" className="btn-secondary w-full" onClick={close}>
+                    Account ({user.email})
+                  </Link>
+                  <button
+                    type="button"
+                    className="btn-secondary w-full"
+                    onClick={() => {
+                      close();
+                      void signOut();
+                    }}
+                  >
+                    Sign out
+                  </button>
+                </>
               ) : (
-                <Link to="/login" className="btn-primary w-full" onClick={close}>
-                  Sign in
-                </Link>
+                <>
+                  <Link to="/login" className="btn-secondary w-full" onClick={close}>
+                    Sign in
+                  </Link>
+                  <Link to="/signup" className="btn-primary w-full" onClick={close}>
+                    Sign up
+                  </Link>
+                </>
               )}
             </div>
           </nav>

@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { Alert } from '../../components/Alert';
+import { LiveIndicator } from '../../components/LiveIndicator';
 import { Spinner } from '../../components/Spinner';
 import { StatusBadge } from '../../components/StatusBadge';
 import { AdminTabs } from '../../features/moderation/AdminTabs';
 import { formatDate } from '../../lib/format';
 import { formatBDNumber, normalizeBDNumber } from '../../lib/phone';
 import { statusLabel } from '../../lib/status';
+import { useRealtimeInvalidate } from '../../lib/useRealtime';
 import { listQueue, type QueueFilters } from '../../services/moderation';
 import { listCategories } from '../../services/search';
 import { REPORT_STATUSES, type ReportStatus } from '../../types/database';
@@ -30,10 +32,19 @@ export function AdminReportsPage() {
 
   const categories = useQuery({ queryKey: ['categories'], queryFn: listCategories });
   const queue = useQuery({ queryKey: ['queue', filters], queryFn: () => listQueue(filters) });
+  // New submissions and other moderators' decisions appear without a refresh.
+  const live = useRealtimeInvalidate({
+    channel: 'moderation-queue',
+    subscriptions: [{ table: 'reports' }],
+    queryKeys: [['queue']],
+  });
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Moderation</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold">Moderation</h1>
+        <LiveIndicator status={live} />
+      </div>
       <AdminTabs />
 
       <form

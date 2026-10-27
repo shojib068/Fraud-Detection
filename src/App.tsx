@@ -5,6 +5,7 @@ import { Layout } from './components/Layout';
 import { RequireAuth, RequireRole } from './features/auth/guards';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
+import { SignUpPage } from './pages/SignUpPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { PublicReportPage } from './pages/PublicReportPage';
@@ -28,6 +29,12 @@ const ReviewReportPage = lazy(() =>
 const AdminAppealsPage = lazy(() =>
   import('./pages/admin/AdminAppealsPage').then((m) => ({ default: m.AdminAppealsPage })),
 );
+const AdminNumbersPage = lazy(() =>
+  import('./pages/admin/AdminNumbersPage').then((m) => ({ default: m.AdminNumbersPage })),
+);
+const AccountPage = lazy(() =>
+  import('./pages/AccountPage').then((m) => ({ default: m.AccountPage })),
+);
 const AdminUsersPage = lazy(() =>
   import('./pages/admin/AdminUsersPage').then((m) => ({ default: m.AdminUsersPage })),
 );
@@ -45,6 +52,8 @@ const router = createBrowserRouter([
       { path: '/privacy', element: <PrivacyPage /> },
       { path: '/terms', element: <TermsPage /> },
       { path: '/login', element: <LoginPage /> },
+      { path: '/signup', element: <SignUpPage /> },
+      { path: '/account', element: <RequireAuth>{page(<AccountPage />)}</RequireAuth> },
       { path: '/report', element: <RequireAuth>{page(<ReportPage />)}</RequireAuth> },
       { path: '/my-reports', element: <RequireAuth>{page(<MyReportsPage />)}</RequireAuth> },
       {
@@ -58,6 +67,10 @@ const router = createBrowserRouter([
       {
         path: '/admin/appeals',
         element: <RequireRole role="moderator">{page(<AdminAppealsPage />)}</RequireRole>,
+      },
+      {
+        path: '/admin/numbers',
+        element: <RequireRole role="admin">{page(<AdminNumbersPage />)}</RequireRole>,
       },
       {
         path: '/admin/users',

@@ -17,9 +17,14 @@ export function AdminTabs() {
         Appeals &amp; corrections
       </NavLink>
       {isAdmin && (
-        <NavLink to="/admin/users" className={tabClass}>
-          Users &amp; roles
-        </NavLink>
+        <>
+          <NavLink to="/admin/users" className={tabClass}>
+            Users
+          </NavLink>
+          <NavLink to="/admin/numbers" className={tabClass}>
+            Numbers
+          </NavLink>
+        </>
       )}
     </nav>
   );

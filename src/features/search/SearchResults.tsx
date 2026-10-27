@@ -3,6 +3,7 @@ import { Alert } from '../../components/Alert';
 import { formatDate } from '../../lib/format';
 import { formatBDNumber } from '../../lib/phone';
 import type { SearchResult } from '../../types/database';
+import { PublicReportCard } from './PublicReportCard';
 
 export function SearchResults({ result }: { result: SearchResult }) {
   const display = formatBDNumber(result.number);
@@ -61,20 +62,8 @@ export function SearchResults({ result }: { result: SearchResult }) {
 
       <ul className="space-y-3">
         {result.reports.map((r) => (
-          <li key={r.id} className="card">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-semibold text-slate-900">{r.category}</span>
-              <span className="text-xs text-slate-600">
-                Incident: {formatDate(r.incident_date)}
-              </span>
-            </div>
-            <p className="mt-2 text-sm text-slate-700">{r.public_summary}</p>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-              <span>Reviewed {formatDate(r.reviewed_at)}</span>
-              <Link to={`/report/${r.id}`} className="font-medium text-blue-800 underline">
-                Details and correction requests
-              </Link>
-            </div>
+          <li key={r.id}>
+            <PublicReportCard report={r} />
           </li>
         ))}
       </ul>

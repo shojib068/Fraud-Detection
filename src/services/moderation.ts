@@ -1,4 +1,5 @@
 import type {
+  AdminNumber,
   AdminUser,
   AppRole,
   AppealRow,
@@ -11,7 +12,7 @@ import type {
   StatusChange,
 } from '../types/database';
 import { EVIDENCE_BUCKET } from './reports';
-import { supabase, unwrap } from './supabase';
+import { ServiceError, supabase, unwrap } from './supabase';
 
 // Every call here is enforced server-side: RLS limits reads to moderators and
 // the SQL functions re-check the caller's role.
@@ -163,4 +164,30 @@ export async function listUsers(query?: string): Promise<AdminUser[]> {
 
 export async function setUserRole(userId: string, role: AppRole): Promise<void> {
   unwrap(await supabase.rpc('set_user_role', { p_user: userId, p_role: role }));
+}
+
+export async function setUserPassword(userId: string, password: string): Promise<void> {
+  unwrap(await supabase.rpc('admin_set_password', { p_user: userId, p_password: password }));
+}
+
+/** Deletes the account. Their reports and evidence are kept, unlinked. */
+export async function deleteUser(userId: string): Promise<void> {
+  unwrap(await supabase.rpc('admin_delete_user', { p_user: userId }));
+}
+
+export async function listNumbers(query?: string): Promise<AdminNumber[]> {
+  return unwrap(await supabase.rpc('admin_list_numbers', { p_query: query || null }));
+}
+
+/**
+ * Deletes a number and all its reports, then removes the evidence files.
+ * Supabase only allows deleting storage objects through the Storage API.
+ */
+export async function deleteNumber(e164: string): Promise<void> {
+  const paths = unwrap(await supabase.rpc('admin_delete_number', { p_e164: e164 })) as string[];
+  if (paths.length) {
+    const { error } = await supabase.storage.from(EVIDENCE_BUCKET).remove(paths);
+    if (error)
+      throw new ServiceError(`Number deleted, but some evidence files remain: ${error.message}`);
+  }
 }

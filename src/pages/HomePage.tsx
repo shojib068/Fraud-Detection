@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { RecentReports } from '../features/search/RecentReports';
 import { SearchForm } from '../features/search/SearchForm';
 
 const TIPS = [
@@ -54,6 +55,8 @@ export function HomePage() {
           </Link>
         </div>
       </section>
+
+      <RecentReports />
     </div>
   );
 }

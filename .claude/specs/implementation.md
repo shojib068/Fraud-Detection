@@ -1,131 +1,204 @@
-# ShieldNum — Implementation Plan (spec v1.1)
+# ShieldNum — Implementation Plan (spec v1.1, revision 4)
+
+Revision 2 removed Docker and added realtime updates. Revision 3 added admin tools to delete users and numbers and to reset passwords. Revision 4 settles accounts on **email + password with email verification**: sign up, click the verification link, then sign in with email and password. The app runs with `npm run dev` in the browser against a **hosted Supabase project**. Postgres, Auth, Storage and Realtime all run in Supabase's cloud, so a developer needs only Node.
+
+## How to run
+1. Create a free project at supabase.com.
+2. `npm install`
+3. Apply the database:
+   - `npx supabase login`
+   - `npx supabase link --project-ref <ref>`
+   - `npx supabase db push`
+
+   None of these need Docker. You can also paste `supabase/migrations/*.sql` into the dashboard SQL editor, in order.
+4. In the dashboard:
+   - Authentication → Sign In / Providers → Email: keep **Confirm email** on.
+   - URL Configuration: set the Site URL to `http://localhost:5173` and add the Redirect URL `http://localhost:5173/**`.
+5. Copy `.env.example` to `.env.local` and fill in the project URL and anon (publishable) key.
+6. `npm run dev`, open http://localhost:5173, sign up, and click the verification link in the email.
+7. Make yourself admin in the SQL editor: `insert into public.user_roles (user_id, role) select id, 'admin' from auth.users where email = '<you>';`
 
 ## Assumptions
-- The new app is built at the repo root, which matches the spec's `shieldnum/` layout. `index.html` moves to `legacy/` and stays runnable until cutover. The empty `database/` dir is removed in favour of `supabase/`.
+- The new app is built at the repo root, which matches the spec's `shieldnum/` layout. `index.html` moves to `legacy/` and stays runnable until cutover.
 - Existing Firestore reports are not migrated automatically, because they were never moderated and their evidence is inline base64. An optional one-off import can bring them in as `pending` with no evidence.
-- The 7 existing categories in `index.html:176-182` seed `report_categories`.
-- Two small additions to the spec's data model: `reports.public_summary` (the moderator's redacted text, which is the only description shown publicly) and `appeals.kind` (`reporter_appeal | correction_request`). Together they cover the requirements to redact and to let people request correction or removal.
+- The 7 existing categories in the legacy form seed `report_categories`.
+- Additions to the spec's data model:
+  - `reports.public_summary`: the moderator's redacted text, and the only description shown publicly.
+  - `appeals.kind`: `reporter_appeal` or `correction_request`.
+  - `public_reports` and `report_updates`: small trigger-maintained tables for Realtime (see Phase 5).
+- **No Docker, anywhere.**
+  - Development and production both use a hosted Supabase project.
+  - Database tests run in PGlite, which is Postgres compiled to WebAssembly and runs in-process in Node.
 
 ## 0. Principles
 - Access control is built and tested **before** the report form is public.
 - The browser only ever holds the Supabase anon key. Every privileged action goes through RLS or a `SECURITY DEFINER` SQL function that checks `auth.uid()` and the user's role.
-- Public data comes only from a curated function. Nobody, including signed-in users, reads `reports` directly unless a policy allows it.
-- The UI never states a verdict. It uses the words "community reports" and "reviewed reports", and shows "No reviewed reports found" when there are none.
+- Public data comes only from curated functions and tables containing approved, redacted fields.
+- Realtime never widens access. Subscriptions only deliver rows the user may already `select`, and the app reloads data through the same RPCs instead of trusting payloads.
+- The UI never states a verdict. It uses "community reports" and "reviewed reports", and shows "No reviewed reports found" when there are none.
 
 ## Phase 1 — Foundation
-1. Move `index.html` to `legacy/index.html`, update `README.md`, and update `CLAUDE.md` at the end of the project.
-2. Run `npm create vite@latest` with react-ts at the root. Add Tailwind, React Router, React Hook Form, Zod, libphonenumber-js, @supabase/supabase-js and @tanstack/react-query.
-3. Tooling: ESLint (typescript-eslint and the react-hooks plugin), Prettier, Vitest, React Testing Library and Playwright. Scripts: `dev`, `build`, `lint`, `typecheck`, `test`, `test:e2e`, `db:test`.
-4. Create the folders from spec §9: `src/{components,pages,features/{search,reports,moderation},lib,services,types}`, `supabase/{migrations,functions}`, `tests/` and `docs/SPEC.md` (a copy of the spec).
-5. Add `.env.example` with `VITE_SUPABASE_URL=` and `VITE_SUPABASE_ANON_KEY=` only. Add `.env*` (except the example) to `.gitignore`.
-6. Run `supabase init`. Local dev uses `supabase start` (Docker).
-7. GitHub Actions CI runs lint, typecheck, unit tests and `supabase test db` on each PR.
+1. Move `index.html` to `legacy/index.html`. Update `README.md` and `CLAUDE.md`.
+2. Set up a Vite React + TypeScript app at the root, with:
+   - Tailwind v4
+   - React Router
+   - React Hook Form and Zod
+   - libphonenumber-js
+   - @supabase/supabase-js
+   - @tanstack/react-query
+3. Tooling: ESLint, Prettier, Vitest, React Testing Library, Playwright, and `@electric-sql/pglite` for database tests. Scripts: `dev`, `build`, `lint`, `typecheck`, `test`, `test:e2e`, `db:test`.
+4. Create the folders from spec §9 plus `scripts/` (test runner) and `docs/SPEC.md`.
+5. Add `.env.example` with placeholders only. Git ignores every other `.env*` file.
+6. Use the Supabase CLI (an npm dev dependency) only for `login`, `link` and `db push`. Seeding is disabled in `supabase/config.toml`.
+7. GitHub Actions CI runs lint, typecheck, unit tests, `db:test` (PGlite), build, Playwright smoke tests and a gitleaks secret scan. No Docker job.
 
 ## Phase 2 — Database and security (`supabase/migrations/`)
-**Migration 001_schema.sql**
-- Enums: `report_status` (`pending, needs_info, approved, rejected, appealed, removed`), `app_role` (`user, moderator, admin`), `appeal_status` (`open, accepted, denied`), `appeal_kind`, `moderation_action` (`approve, reject, request_info, redact, escalate, remove, restore`).
-- Tables, as in spec §5, with UUID PKs (`gen_random_uuid()`), `timestamptz default now()` and FKs:
-  - `profiles`: PK is `auth.users.id`. A trigger on `auth.users` insert creates the profile and a `user` role.
-  - `user_roles(user_id, role)`: unique on the pair.
-  - `phone_numbers`: `normalized_e164` is unique, with a `CHECK (normalized_e164 ~ '^\+8801[3-9][0-9]{8}$')`.
-  - `report_categories`: seeded with the 7 legacy categories.
-  - `reports`: also has `public_summary text`. Checks: description length 20–2000 and `incident_date <= current_date`.
-  - `report_evidence`: `mime_type in (image/jpeg, image/png, image/webp)`, `file_size <= 5 MB`. A trigger limits each report to 3 evidence files.
-  - `moderation_actions`, `report_status_history`, `appeals` (with `kind`) and `audit_logs`.
-- Indexes on `reports(phone_number_id, status)`, `reports(reporter_id, created_at)`, `reports(status, created_at)` and `appeals(status)`.
-- Trigger `updated_at`. Trigger `on status change → insert report_status_history`.
+**`…01_schema.sql`**
+- Enums: `report_status`, `app_role`, `appeal_status`, `appeal_kind`, `moderation_action`.
+- Tables from spec §5:
+  - UUID primary keys and `timestamptz` timestamps.
+  - CHECKs on the E.164 format, description length (20–2000), incident date, and evidence type and size (5 MB).
+  - A trigger limiting each report to 3 evidence files.
+- Triggers:
+  - a new auth user gets a `profiles` row and the `user` role
+  - `updated_at`
+  - a status change inserts into `report_status_history`
+- Indexes on the queue, the reporter and the number lookups.
 
-**Migration 002_rls.sql**
-- Enable RLS on every table.
-- Helpers (`SECURITY DEFINER`, `search_path` pinned): `has_role(role)` and `is_moderator()`, which is true for both moderator and admin.
-- Policies:
-  - `profiles`: a user can select and update only their own row.
-  - `user_roles`: a user can select only their own rows. There are **no** insert, update or delete policies, so roles change only through the admin-only RPC.
-  - `reports`: a reporter can select their own rows, and moderators can select all. There is no direct insert or update; writes go through the RPCs.
-  - `report_evidence`: the reporter can select their own evidence and moderators can select all. Insert is allowed only for the reporter, only while the report is `pending` or `needs_info`.
-  - `moderation_actions`, `report_status_history`, `audit_logs`: moderators can select. The reporter can select the status history of their own reports. Writes happen only through functions.
-  - `appeals`: the requester can insert and select their own appeals. Moderators can select and update.
-  - `phone_numbers`, `report_categories`: anyone can select active categories. `phone_numbers` can be read only through functions.
-- `anon` gets no grants on raw tables, only `EXECUTE` on the public functions.
+**`…02_rls.sql`**
+- RLS on every table, and table grants revoked from `anon`/`authenticated` and re-granted narrowly.
+- Helpers live in the unexposed `private` schema with a pinned `search_path`: `has_role`, `is_moderator`, `is_admin`, `owns_report`, `can_attach_evidence`.
+  - A helper used by a policy must be granted to every role that hits that policy. For example, `is_moderator` is granted to `anon`.
+- Who can read what:
+  - Moderators can read `reports`, numbers, history, actions and audit logs.
+  - Reporters cannot read `reports` directly. They use `my_reports()`, which leaves out `moderator_note`.
+  - Evidence: the owner can insert while the report is pending or needs info. The owner and moderators can read.
+  - `user_roles` has no write policies.
 
-**Migration 003_functions.sql**
-- `search_number(p_e164 text)`: anon and authenticated, `SECURITY DEFINER`. Returns `{ approved_count, categories[], first_reported, last_reported, reports: [{id, category, incident_date, public_summary, reviewed_at}] }` for **approved** reports only. It never returns the reporter, notes, evidence or pending counts.
-- `get_public_report(p_id uuid)`: returns the same safe fields if the report is approved, and null otherwise.
-- `submit_report(p_phone, p_category_id, p_incident_date, p_description)`: authenticated only. Revalidates the E.164 format and the field rules. Rate limit: at most 5 reports per user per 24 h. Duplicate check: the same user and number within 30 days is rejected. It upserts `phone_numbers`, inserts the report as `pending`, writes `audit_logs` and returns `{id, reference}`.
-- `moderate_report(p_id, p_action, p_reason, p_public_summary)`: moderators only. Validates the allowed state transition, updates the status, `reviewed_at` and `public_summary`, and writes `moderation_actions` and `audit_logs` in one transaction. A report cannot be approved without a `public_summary`.
-- `submit_appeal(p_report_id, p_kind, p_reason)`: a reporter can appeal their own `rejected` or `removed` report. Any signed-in user can file a `correction_request` on an approved report. A `reporter_appeal` sets the report to `appealed`.
-- `resolve_appeal(p_id, p_decision, p_reason)`: moderators only.
-- `set_user_role(p_user, p_role)`: admin only, and audited.
+**`…03_functions.sql`**: `SECURITY DEFINER` functions. Each checks the caller and writes audit entries.
 
-**Migration 004_storage.sql**
-- Private bucket `evidence` with `file_size_limit 5MB` and `allowed_mime_types` set to jpeg, png and webp.
-- Object path: `{auth.uid()}/{report_id}/{uuid}.{ext}`. A user can insert objects only under their own folder and only for their own pending report. Select is allowed for the owner and for moderators. There is no public access.
-- Moderators view evidence through `createSignedUrl(path, 60)`.
+| Who can call | Functions |
+|---|---|
+| Anyone | `search_number`, `get_public_report` |
+| Reporters | `submit_report` (rate limit 5 per 24 h, duplicate window 30 days), `my_reports`, `respond_to_info_request`, `submit_appeal` |
+| Moderators | `moderate_report` (enforces allowed transitions; publishing requires a summary), `resolve_appeal` |
+| Admins | `admin_list_users`, `set_user_role` |
 
-**Tests for the database (`supabase/tests/*.sql`, pgTAP via `supabase test db`)**. These are written in this phase, before any UI:
-- anon cannot select any raw table, and `search_number` returns only approved rows.
-- User A cannot read user B's reports or evidence.
-- A user cannot insert into `user_roles` or call `moderate_report` or `set_user_role`.
-- New reports are created as `pending`. Status changes create history rows and moderation actions.
-- Rate-limit and duplicate rejections work.
+**`…04_storage.sql`**
+- Private `evidence` bucket: 5 MB limit, JPEG/PNG/WebP only.
+- Objects are stored at `{uid}/{report_id}/{uuid}.{ext}`. Only the owner can upload, and only into their own pending report.
+- The owner and moderators can read. Moderators view evidence through 60-second signed URLs.
+
+**`…05_realtime.sql`**: see Phase 5.
 
 ## Phase 3 — Phone handling and search
-- `src/lib/phone.ts`: `toAsciiDigits()` maps ০-৯ to 0-9. `normalizeBDNumber(input)` converts digits, strips spaces, hyphens, brackets and dots, then calls `parsePhoneNumberFromString(x, 'BD')`. The result must be valid and in the BD country, and the function returns `{ ok, e164 } | { ok:false, error }`. It accepts `01XXXXXXXXX`, `8801…`, `+8801…` and `00880…`.
-- Unit tests (`src/lib/phone.test.ts`): Bangla digits, mixed separators, each prefix form, invalid lengths, non-BD numbers and landlines (decide whether to accept them; default is mobile only, to match the DB CHECK).
-- `src/services/supabase.ts` creates the client. `src/services/search.ts` calls `rpc('search_number')`.
-- Pages: `/` has the search box and safety tips. `/search?q=` covers the loading, invalid number, network error, "No reviewed reports found" and results states. Results show the count, categories, dates and summaries with neutral wording and a disclaimer. `/report/:id` shows the public summary.
+- `src/lib/phone.ts` (unit tested):
+  - Converts Bangla digits and strips separators.
+  - Parses with libphonenumber-js and accepts BD mobile numbers only.
+  - Returns E.164.
+- `/` has the search box, safety tips and a **live "Recently reviewed reports" feed**.
+- `/search?q=` covers the loading, invalid number, network error, "No reviewed reports found" and results states, and **updates live**.
+- `/report/:id` shows the public summary and a correction or removal request form, and **updates live**.
 
 ## Phase 4 — Auth and reports
-- Supabase Auth email OTP or magic link. Add `AuthProvider` and `RequireAuth` in `src/features/auth/`, a `/login` page and a sign-out control.
-- `/report`: a React Hook Form form with a Zod schema shared in `src/features/reports/schema.ts` (phone through `normalizeBDNumber`, category, incident date no later than today, description 20–2000 chars, up to 3 images, each 5 MB or less, jpeg/png/webp). Before submitting, warn the user not to include personal data.
-- Submit flow: call `rpc('submit_report')` to get the id, then upload each file to `evidence/{uid}/{id}/…`, then insert `report_evidence` rows. On success, show the reference and link to `/my-reports`.
-- `/my-reports`: the user's own reports, with status badges, status history, moderator-requested info for `needs_info`, and an "Appeal" action on rejected or removed reports.
-- Static pages: `/safety`, `/privacy` and `/terms`. `/terms` covers acceptable use, the disclaimer, retention, and how to request a correction or removal or file an appeal. Mark them for legal review.
+- **Accounts are email + password with email verification**. Sign-up is open, with no admin approval.
+  - `/signup` calls `supabase.auth.signUp` with `emailRedirectTo` set to `/login`. Supabase emails a verification link, and **Confirm email** stays on.
+  - Clicking the link returns the user signed in.
+  - `/login` calls `signInWithPassword`. An unverified email shows "Verify your email first" with a resend button (`auth.resend`).
+  - An existing email is detected through Supabase's empty `identities` response.
+  - `/account` changes the password. There's no reset-email flow; an admin sets a new password from the Users screen.
+  - Supabase's built-in email only reaches project team members, at about 2 per hour. **Custom SMTP** (for example Resend's free tier) is required before public sign-up.
+  - Abuse controls are Supabase's sign-up rate limit, email verification, and the per-account report limit. Cloudflare Turnstile is the next step if spam appears.
+- `/report`: a React Hook Form form with a shared Zod schema and up to 3 images. Before submitting, it warns the user not to include personal data.
+- `/my-reports` shows:
+  - status badges and status history
+  - the moderator's question, with a reply form, for `needs_info`
+  - an appeal form for rejected or removed reports
 
-## Phase 5 — Moderation
-- `/admin/reports` is protected by `RequireRole('moderator')`. The route guard is for UX only; RLS is the real enforcement.
-- Queue: filter by status (pending first), number, category and date.
-- Detail view: report fields, evidence through signed URLs, prior reports for the same number, status history, actions and appeals.
-- Actions call `rpc('moderate_report')`. A reason is required for reject, remove and request_info. A `public_summary` editor is required to approve, prefilled with the description for the moderator to redact.
-- Appeals tab: a list of appeals, resolved through `rpc('resolve_appeal')`.
-- An admin-only roles screen calls `set_user_role`. The first admin is created by hand with SQL in the Supabase dashboard, as documented in the README.
+  The page **updates live** when a moderator acts.
+- Static pages: `/safety`, `/privacy`, `/terms`. They are marked for legal review.
 
-## Phase 6 — Testing
-- Unit: `phone.ts`, Zod schemas, status label helpers.
-- Component (RTL): every search state, form validation messages, upload limit errors.
-- DB (pgTAP): the access-control matrix and state transitions from Phase 2.
-- E2E (Playwright against local Supabase, with seeded users for user, moderator and admin):
-  1. A user submits a report, which stays pending and does not appear in search.
-  2. A moderator approves it with a summary, and it now appears in search.
-  3. Another user cannot see it in their reports.
-  4. Reject, then appeal, then resolve.
-  5. Mobile (375 px) and desktop viewports.
-- Accessibility check with `@axe-core/playwright` on the main pages.
+## Phase 5 — Realtime (`…05_realtime.sql`, `src/lib/useRealtime.ts`)
+Supabase Realtime (`postgres_changes`) only delivers a change to subscribers who may `select` that row under RLS. Anonymous visitors and reporters can't read `reports`, so each gets a trigger-maintained table that is safe for them:
 
-## Phase 7 — Deploy
-- Create a Supabase Free project and run `supabase db push` for the migrations. Confirm the bucket is private, and turn on email confirmation and the Auth rate limits.
-- Cloudflare Pages: connect the GitHub repo, use build `npm run build` with output `dist`, set the `VITE_SUPABASE_*` env vars, and add an SPA fallback through `public/_redirects` (`/* /index.html 200`).
-- Production smoke test: run the anon access checks against the prod API with only the anon key.
-- Cutover: remove `legacy/` and decommission the Firebase project (`fraud-detector-app-18d4c`), whose config is currently hardcoded in `index.html`. Rotate or restrict that key.
-- Optional: a one-off script `scripts/import-firestore.ts`, run locally with the service-role key from env and never committed, imports legacy reports as `pending` without attachments.
+| Table | Contents | Who can read it | Used for |
+|---|---|---|---|
+| `public_reports` | approved, redacted fields only (`phone_e164`, `category`, `incident_date`, `public_summary`, `reviewed_at`) | everyone | search, report page, home feed |
+| `report_updates` | `report_id`, `reporter_id`, `status` | the reporter only | My reports |
+| `reports`, `appeals` | existing tables | moderators only | queue, review page, appeals |
+
+- How the two new tables stay in sync:
+  - A trigger on `reports` (`private.sync_realtime_tables`) upserts into `public_reports` when the status is `approved` and deletes the row otherwise.
+  - The same trigger updates `report_updates` on every status change.
+  - Existing rows are backfilled.
+- All four tables are added to the `supabase_realtime` publication.
+- Client side:
+  - `useRealtimeInvalidate({ channel, subscriptions, queryKeys })` subscribes, and on any change refetches the TanStack Query keys through the normal RPCs.
+  - On reconnect it refetches to catch up. It removes the channel on unmount.
+  - A `LiveIndicator` shows "Live" or "Reconnecting".
+
+## Phase 6 — Moderation
+- `/admin/reports`, `/admin/reports/:id` and `/admin/appeals` are guarded by `RequireRole('moderator')`, which only shapes the UX; RLS does the real enforcement. `/admin/users` is admin-only.
+- The queue has filters (status, number, category, date) and **updates live** as reports arrive or other moderators decide.
+- The review page shows:
+  - the report and its evidence through signed URLs
+  - the audit trail
+  - appeals
+  - other reports for the same number
+  - the decision panel (a reason is required where needed; publishing requires a redacted summary)
+- Appeals are resolved in their own tab, which **updates live**.
+- The first admin is created by hand with SQL (by email). After that, roles are managed in the app.
+- **Admin tools** (`/admin/users`, `/admin/numbers`; SQL functions in `…06_accounts.sql`, each admin-only and audited):
+  - `admin_list_users`: search by email.
+  - `set_user_role`: change a user's role.
+  - `admin_set_password`: sets a bcrypt hash, the same format Supabase Auth uses.
+  - `admin_delete_user`: an admin can't delete themselves. The user's reports and evidence are **kept, unlinked**: `reports.reporter_id` is set to null, and nobody can appeal an orphaned report.
+  - `admin_list_numbers` and `admin_delete_number`: deleting a number removes all its reports. The function returns the evidence paths, and the client deletes those files through the Storage API under an admin-only delete policy.
+
+## Phase 7 — Testing (no Docker)
+- **Unit and component (Vitest + RTL):**
+  - phone normalization, Zod schemas, status helpers and moderation rules
+  - every search state, form validation and upload limits
+  - the realtime hook, with a mocked channel
+- **Database (`npm run db:test`):** `scripts/db-test.mjs` loads `supabase/tests/supabase-stub.sql` into PGlite, then all migrations, then each `supabase/tests/database/*.test.sql` file. The stub covers Supabase's `auth`, `storage`, roles, the realtime publication and a small pgTAP subset. Coverage:
+  - the access-control matrix
+  - the report lifecycle, appeals, rate limits and duplicates
+  - storage policies
+  - realtime table sync and RLS
+  - the admin tools, and keeping reports when a user is deleted
+- **Playwright smoke tests:** accessibility (axe) on public pages, mobile overflow and invalid-number handling. They need only the dev server.
+- **Manual realtime check** against the hosted project, with two browser windows:
+  - approving or removing a report updates search and the home feed live
+  - a reporter's My reports changes status live
+  - a new submission appears live in the moderator queue
+
+## Phase 8 — Deploy
+- **Supabase** (free tier):
+  - `db push`, then check the `evidence` bucket is private.
+  - Keep **Confirm email** on, set the Site URL and Redirect URLs to the production domain, and configure **custom SMTP**.
+- **Cloudflare Pages:** build command `npm run build`, output `dist`. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. `public/_redirects` provides the SPA fallback.
+- **Smoke test** with only the anon key: `reports` is unreadable, while `public_reports` and search work.
+- **Cutover:** delete `legacy/`, shut down Firebase project `fraud-detector-app-18d4c`, and rotate or restrict its key.
+- **Optional:** `supabase/sample-data.sql`, run by hand, adds demo approved reports.
 
 ## Acceptance checklist mapping (spec §11)
 | Item | Covered by |
 |---|---|
-| BD numbers normalize incl. Bangla digits | `phone.ts` and its unit tests, DB CHECK |
-| Invalid numbers rejected clearly | `/search` and form errors, `submit_report` check |
-| Public search only approved and redacted | `search_number` with `public_summary`, pgTAP |
-| New reports private and pending | `submit_report`, RLS, E2E 1 |
-| No cross-user reads | RLS on reports, evidence and storage, pgTAP, E2E 3 |
-| No self-granted roles | No write policies on `user_roles`, admin-only RPC |
+| BD numbers normalize, including Bangla digits | `phone.ts` and its tests, DB CHECK |
+| Invalid numbers rejected clearly | search and form errors, `submit_report` check |
+| Public search only shows approved, redacted reports | `search_number`, `public_reports`, DB tests 02 and 04 |
+| New reports private and pending | `submit_report`, RLS, DB tests 01 and 02 |
+| No cross-user reads | RLS on reports, evidence, storage and `report_updates`; DB tests 01, 03, 04 |
+| No self-granted roles | no write policies on `user_roles`, admin-only RPC |
+| Accounts and admin tools | `…06_accounts.sql`, DB test 05, sign-in and sign-up page tests |
 | Auditable moderation | `moderation_actions`, status-history trigger, `audit_logs` |
 | Upload type and size limits | Zod, bucket limits, table CHECK, 3-file trigger |
-| No secrets shipped | anon key only, `.env.example`, CI secret scan (gitleaks action) |
-| Mobile and desktop | Playwright viewports |
+| No secrets shipped | anon key only, `.env.example`, gitleaks in CI |
+| Mobile and desktop | responsive layout, Playwright mobile project |
 | Policies published | `/privacy`, `/terms`, `/safety` |
+| Realtime | `…05_realtime.sql`, `useRealtimeInvalidate`, DB test 04, manual check |
 
 ## Open decisions (defaults chosen)
-- Mobile numbers only (`+8801[3-9]…`). Landlines can be added later.
+- Mobile numbers only (`+8801[3-9]…`).
 - Rate limit of 5 reports per day and a 30-day duplicate window, both tunable in `submit_report`.
 - No CAPTCHA at first. Cloudflare Turnstile (free) can be added if abuse appears.
-

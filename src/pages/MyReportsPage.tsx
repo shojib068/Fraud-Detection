@@ -1,23 +1,37 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { Alert } from '../components/Alert';
+import { LiveIndicator } from '../components/LiveIndicator';
 import { Spinner } from '../components/Spinner';
 import { StatusBadge } from '../components/StatusBadge';
+import { useAuth } from '../features/auth/context';
 import { AppealForm } from '../features/reports/AppealForm';
 import { InfoResponseForm } from '../features/reports/InfoResponseForm';
 import { formatDate, formatDateTime } from '../lib/format';
 import { formatBDNumber } from '../lib/phone';
 import { APPEAL_STATUS_LABEL, canAppeal, REPORT_STATUS_INFO, statusLabel } from '../lib/status';
+import { useRealtimeInvalidate } from '../lib/useRealtime';
 import { getMyReports } from '../services/reports';
 import type { MyReport } from '../types/database';
 
 export function MyReportsPage() {
+  const { user } = useAuth();
   const query = useQuery({ queryKey: ['my-reports'], queryFn: getMyReports });
+  // report_updates is RLS-scoped to the reporter; the filter just narrows the stream.
+  const live = useRealtimeInvalidate({
+    channel: 'my-reports',
+    subscriptions: [{ table: 'report_updates', filter: `reporter_id=eq.${user?.id}` }],
+    queryKeys: [['my-reports']],
+    enabled: Boolean(user),
+  });
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">My reports</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">My reports</h1>
+          <LiveIndicator status={live} />
+        </div>
         <Link to="/report" className="btn-primary">
           New report
         </Link>

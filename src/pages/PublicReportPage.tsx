@@ -6,12 +6,19 @@ import { AppealForm } from '../features/reports/AppealForm';
 import { useAuth } from '../features/auth/context';
 import { formatDate } from '../lib/format';
 import { formatBDNumber } from '../lib/phone';
+import { useRealtimeInvalidate } from '../lib/useRealtime';
 import { getPublicReport } from '../services/search';
 
 export function PublicReportPage() {
   const { id = '' } = useParams();
   const { user } = useAuth();
   const query = useQuery({ queryKey: ['public-report', id], queryFn: () => getPublicReport(id) });
+  useRealtimeInvalidate({
+    channel: 'public-report',
+    subscriptions: [{ table: 'public_reports', filter: `id=eq.${id}` }],
+    queryKeys: [['public-report', id]],
+    enabled: Boolean(id),
+  });
 
   if (query.isLoading) return <Spinner />;
   if (query.isError) {

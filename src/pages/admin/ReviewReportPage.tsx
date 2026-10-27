@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { Alert } from '../../components/Alert';
+import { LiveIndicator } from '../../components/LiveIndicator';
 import { Spinner } from '../../components/Spinner';
 import { StatusBadge } from '../../components/StatusBadge';
 import { AdminTabs } from '../../features/moderation/AdminTabs';
@@ -9,6 +10,7 @@ import { formatBytes, formatDate, formatDateTime } from '../../lib/format';
 import { formatBDNumber } from '../../lib/phone';
 import { ACTION_LABEL, APPEAL_STATUS_LABEL, statusLabel } from '../../lib/status';
 import { getReviewDetail } from '../../services/moderation';
+import { useRealtimeInvalidate } from '../../lib/useRealtime';
 
 export function ReviewReportPage() {
   const { id = '' } = useParams();
@@ -17,6 +19,16 @@ export function ReviewReportPage() {
     queryFn: () => getReviewDetail(id),
     // Signed evidence URLs expire after 60 seconds.
     staleTime: 30_000,
+  });
+  // Another moderator's decision or a new appeal refreshes this view.
+  const live = useRealtimeInvalidate({
+    channel: 'moderation-review',
+    subscriptions: [
+      { table: 'reports', filter: `id=eq.${id}` },
+      { table: 'appeals', filter: `report_id=eq.${id}` },
+    ],
+    queryKeys: [['review', id]],
+    enabled: Boolean(id),
   });
 
   if (query.isLoading) return <Spinner label="Loading report…" />;
@@ -34,9 +46,12 @@ export function ReviewReportPage() {
   return (
     <div className="space-y-6">
       <AdminTabs />
-      <Link to="/admin/reports" className="text-sm text-blue-800 underline">
-        ← Back to queue
-      </Link>
+      <div className="flex items-center justify-between gap-3">
+        <Link to="/admin/reports" className="text-sm text-blue-800 underline">
+          ← Back to queue
+        </Link>
+        <LiveIndicator status={live} />
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="space-y-6">
@@ -53,8 +68,8 @@ export function ReviewReportPage() {
               <dt className="text-slate-600">Submitted</dt>
               <dd>{formatDateTime(r.created_at)}</dd>
               <dt className="text-slate-600">Reporter</dt>
-              <dd className="truncate font-mono text-xs" title={r.reporter_id}>
-                {r.reporter_id.slice(0, 8)}
+              <dd className="truncate font-mono text-xs" title={r.reporter_id ?? undefined}>
+                {r.reporter_id ? r.reporter_id.slice(0, 8) : 'Deleted user'}
               </dd>
               <dt className="text-slate-600">Reviewed</dt>
               <dd>{formatDateTime(r.reviewed_at)}</dd>

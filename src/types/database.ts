@@ -44,6 +44,11 @@ export interface PublicReportDetail extends PublicReport {
   number: string;
 }
 
+/** Row of public.public_reports: approved, redacted reports kept in sync for Realtime. */
+export interface PublicReportRow extends PublicReport {
+  phone_e164: string;
+}
+
 export interface StatusChange {
   old_status: ReportStatus | null;
   new_status: ReportStatus;
@@ -90,7 +95,8 @@ export interface QueueReport {
   moderator_note: string | null;
   created_at: string;
   reviewed_at: string | null;
-  reporter_id: string;
+  /** Null when the author's account was deleted. */
+  reporter_id: string | null;
   phone_number_id: string;
   phone_numbers: { normalized_e164: string } | null;
   report_categories: { name: string } | null;
@@ -125,7 +131,16 @@ export interface AppealRow {
 
 export interface AdminUser {
   id: string;
+  username: string | null;
   email: string;
   created_at: string;
   roles: AppRole[];
+}
+
+export interface AdminNumber {
+  number: string;
+  total_reports: number;
+  approved_reports: number;
+  pending_reports: number;
+  last_reported: string | null;
 }
