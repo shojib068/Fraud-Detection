@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+*.local
+.DS_Store
+
+# Environment: only the example file is committed.
+.env
+.env.*
+!.env.example
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Editor / tool state
+.claude/settings.local.json
+*.tsbuildinfo
