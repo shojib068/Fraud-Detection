@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+# Allow only the legacy Firebase web API key (a public identifier in the old
+# index.html, also present in git history). Rotate or restrict it at cutover.
+[allowlist]
+description = "Legacy Firebase web config key"
+regexes = ['''AIzaSyAejC5vT5[0-9A-Za-z_-]*''']
