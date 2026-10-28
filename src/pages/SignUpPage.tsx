@@ -52,7 +52,7 @@ export function SignUpPage() {
       password: parsed.data.password,
       options: {
         // The verification link brings the user back here, signed in.
-        emailRedirectTo: `${window.location.origin}/login?next=${encodeURIComponent(next)}`,
+        emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}login?next=${encodeURIComponent(next)}`,
       },
     });
     setBusy(false);

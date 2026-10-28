@@ -54,7 +54,7 @@ export function Layout() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
           <Link to="/" className="flex items-center gap-2 text-lg font-bold text-slate-900">
-            <img src="/favicon.svg" alt="" className="size-7" />
+            <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="size-7" />
             ShieldNum
           </Link>
           <nav aria-label="Main" className="hidden items-center gap-1 md:flex">

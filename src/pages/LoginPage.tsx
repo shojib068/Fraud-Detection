@@ -56,7 +56,7 @@ export function LoginPage() {
       type: 'signup',
       email: parsed.data,
       options: {
-        emailRedirectTo: `${window.location.origin}/login?next=${encodeURIComponent(next)}`,
+        emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}login?next=${encodeURIComponent(next)}`,
       },
     });
     setBusy(false);

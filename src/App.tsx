@@ -41,45 +41,48 @@ const AdminUsersPage = lazy(() =>
 
 const page = (node: ReactNode) => <Suspense fallback={<Spinner />}>{node}</Suspense>;
 
-const router = createBrowserRouter([
-  {
-    element: <Layout />,
-    children: [
-      { path: '/', element: <HomePage /> },
-      { path: '/search', element: <SearchPage /> },
-      { path: '/report/:id', element: <PublicReportPage /> },
-      { path: '/safety', element: <SafetyPage /> },
-      { path: '/privacy', element: <PrivacyPage /> },
-      { path: '/terms', element: <TermsPage /> },
-      { path: '/login', element: <LoginPage /> },
-      { path: '/signup', element: <SignUpPage /> },
-      { path: '/account', element: <RequireAuth>{page(<AccountPage />)}</RequireAuth> },
-      { path: '/report', element: <RequireAuth>{page(<ReportPage />)}</RequireAuth> },
-      { path: '/my-reports', element: <RequireAuth>{page(<MyReportsPage />)}</RequireAuth> },
-      {
-        path: '/admin/reports',
-        element: <RequireRole role="moderator">{page(<AdminReportsPage />)}</RequireRole>,
-      },
-      {
-        path: '/admin/reports/:id',
-        element: <RequireRole role="moderator">{page(<ReviewReportPage />)}</RequireRole>,
-      },
-      {
-        path: '/admin/appeals',
-        element: <RequireRole role="moderator">{page(<AdminAppealsPage />)}</RequireRole>,
-      },
-      {
-        path: '/admin/numbers',
-        element: <RequireRole role="admin">{page(<AdminNumbersPage />)}</RequireRole>,
-      },
-      {
-        path: '/admin/users',
-        element: <RequireRole role="admin">{page(<AdminUsersPage />)}</RequireRole>,
-      },
-      { path: '*', element: <NotFoundPage /> },
-    ],
-  },
-]);
+const router = createBrowserRouter(
+  [
+    {
+      element: <Layout />,
+      children: [
+        { path: '/', element: <HomePage /> },
+        { path: '/search', element: <SearchPage /> },
+        { path: '/report/:id', element: <PublicReportPage /> },
+        { path: '/safety', element: <SafetyPage /> },
+        { path: '/privacy', element: <PrivacyPage /> },
+        { path: '/terms', element: <TermsPage /> },
+        { path: '/login', element: <LoginPage /> },
+        { path: '/signup', element: <SignUpPage /> },
+        { path: '/account', element: <RequireAuth>{page(<AccountPage />)}</RequireAuth> },
+        { path: '/report', element: <RequireAuth>{page(<ReportPage />)}</RequireAuth> },
+        { path: '/my-reports', element: <RequireAuth>{page(<MyReportsPage />)}</RequireAuth> },
+        {
+          path: '/admin/reports',
+          element: <RequireRole role="moderator">{page(<AdminReportsPage />)}</RequireRole>,
+        },
+        {
+          path: '/admin/reports/:id',
+          element: <RequireRole role="moderator">{page(<ReviewReportPage />)}</RequireRole>,
+        },
+        {
+          path: '/admin/appeals',
+          element: <RequireRole role="moderator">{page(<AdminAppealsPage />)}</RequireRole>,
+        },
+        {
+          path: '/admin/numbers',
+          element: <RequireRole role="admin">{page(<AdminNumbersPage />)}</RequireRole>,
+        },
+        {
+          path: '/admin/users',
+          element: <RequireRole role="admin">{page(<AdminUsersPage />)}</RequireRole>,
+        },
+        { path: '*', element: <NotFoundPage /> },
+      ],
+    },
+  ],
+  { basename: import.meta.env.BASE_URL.replace(/\/$/, '') || '/' },
+);
 
 export function App() {
   return <RouterProvider router={router} />;
